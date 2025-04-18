@@ -8,8 +8,6 @@ const listsPath = join(executableDir, "/lists");
 import config from "./config/config.json" with { type: "json" };
 import { clear, promptMenu, waitUserInput, write } from "./menu.ts";
 
-let isOldCmd = false;
-
 const processNames = {
   zapret: "zapret",
   winDivert: "WinDivert",
@@ -29,7 +27,12 @@ interface DPIStrategy {
 async function ensureAdminOrRelaunch(): Promise<void> {
   if (Deno.build.os !== "windows") return;
 
-  //const curentConsolePID = Deno.pid;
+  const exePath = Deno.execPath();
+  
+  if (!exePath.endsWith(".exe") || exePath.includes("deno.exe")) {
+    console.log("Эта функция работает только с .exe приложениями");
+    return;
+  }
 
   const isAdmin = await new Deno.Command("net", {
     args: ["session"],
@@ -43,58 +46,33 @@ async function ensureAdminOrRelaunch(): Promise<void> {
 
   console.log("Требуются права администратора. Перезапуск...");
 
-  const exePath = Deno.execPath();
-  const scriptPath = Deno.mainModule;
-  const args = Deno.args.map((arg) => arg.includes(" ") ? `"${arg}"` : arg);
+  const escapeForPowerShell = (str: string): string => {
+    return `'${str.replace(/'/g, "''")}'`;
+  };
 
-  const isExe = exePath.endsWith(".exe") && !exePath.includes("deno.exe");
-  const relaunchArgs = isExe
-    ? [scriptPath, ...args]
-    : ["run", "--allow-run", scriptPath, ...args];
+  const escapedExePath = escapeForPowerShell(exePath);
 
-  try {
-    const { success } = await new Deno.Command("where", {
-      args: ["wt.exe"],
-      stdout: "null",
-      stderr: "null",
-    }).output();
+  const { success } = await new Deno.Command("where", {
+    args: ["wt.exe"],
+    stdout: "null",
+    stderr: "null",
+  }).output();
 
-    if (success) {
-      const innerCmd = [
-        "powershell",
-        "-NoProfile",
-        "-Command",
-        `"${exePath} ${relaunchArgs.join(" ")}"`,
-      ];
-
-      new Deno.Command("wt.exe", {
-        args: [
-          "powershell",
-          "-NoProfile",
-          "-Command",
-          `Start-Process -FilePath 'wt.exe' -ArgumentList '${
-            innerCmd.join(" ")
-          }' -Verb RunAs`,
-        ],
-      }).spawn();
-
-      //console.log(curentConsolePID)
-
-      // Закрываем исходный терминал после успешного запуска
-      //await stopProcess(curentConsolePID);
-      Deno.exit(0);
-    }
-  } catch {
-    console.log("Warning: Не удалось найти Windows Terminal (wt.exe).");
+  if (success) {
+    const psCommand = `Start-Process -FilePath "wt.exe" -ArgumentList @('${exePath.replace(/'/g, "''")}') -Verb RunAs`;
+    new Deno.Command("powershell.exe", {
+      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", psCommand],
+    }).spawn();
+    Deno.exit(0);
   }
+
+  console.log('no reason to launch THIS')
 
   new Deno.Command("powershell", {
     args: [
       "-NoProfile",
       "-Command",
-      `$proc = Start-Process -FilePath "${exePath}" -ArgumentList "${
-        relaunchArgs.join(" ")
-      }" -Verb RunAs -PassThru;`,
+      `Start-Process -FilePath ${escapedExePath} -Verb RunAs -Wait`
     ],
   }).spawn();
 
@@ -166,66 +144,47 @@ const processArgs = (strategy_index: number = 0): string[] => {
   return args;
 };
 
-const startProcess = (args: string[]) => {
-  const command = new Deno.Command(winwsPath, {
-    args: args,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-
-  const childProcess = command.spawn();
-
-  write(`Процесс запущен с PID: ${childProcess.pid}`);
-};
-
 const startZapretAsService = async (args: string[]) => {
-  const serviceName = processNames.zapret;
 
-  // Если служба уже существует — удаляем её
-  const { exist } = await serviceStatus(serviceName);
+  const { exist } = await serviceStatus(processNames.zapret);
   if (exist) {
-    await stopServiceAndDelete(serviceName);
+    await stopServiceAndDelete(processNames.zapret);
   }
 
-  // Собираем полную команду запуска (exe + аргументы)
-  const binCmd = `${winwsPath} ${args.join(" ")}`;
-
-  // Создаём службу с автозапуском
   const createResult = await executeCommand(
     "sc.exe",
     [
       "create",
-      serviceName,
+      processNames.zapret,
       "binPath=",
-      binCmd,
+      `${winwsPath} ${args.join(" ")}`,
       "start=",
       "auto",
     ],
-    `создания службы ${serviceName}`,
+    `создания службы ${processNames.zapret}`,
   );
   if (!createResult || createResult.code !== 0) {
     console.error(
-      `Не удалось создать службу "${serviceName}": ` +
+      `Не удалось создать службу "${processNames.zapret}": ` +
         `${createResult?.stderr || createResult?.stdout}`,
     );
     return;
   }
-  console.log(`Служба "${serviceName}" создана и настроена на автозапуск.`);
+  console.log(`Служба "${processNames.zapret}" создана и настроена на автозапуск.`);
 
-  // Запускаем службу
   const startResult = await executeCommand(
     "sc.exe",
-    ["start", serviceName],
-    `запуска службы ${serviceName}`,
+    ["start", processNames.zapret],
+    `запуска службы ${processNames.zapret}`,
   );
   if (!startResult || startResult.code !== 0) {
     console.error(
-      `Не удалось запустить службу "${serviceName}": ` +
+      `Не удалось запустить службу "${processNames.zapret}": ` +
         `${startResult?.stderr || startResult?.stdout}`,
     );
     return;
   }
-  console.log(`Служба "${serviceName}" успешно запущена.`);
+  console.log(`Служба "${processNames.zapret}" успешно запущена.`);
 };
 
 const stopProcess = async (pid: number) => {
@@ -426,8 +385,6 @@ async function serviceStatus(
       return defaultResult;
     }
 
-    console.log(statusResult.stdout);
-
     if (statusResult?.code === 0) {
       let isRunning = false;
       const lines = statusResult.stdout.split("\n");
@@ -518,7 +475,7 @@ async function editFileInteractive(filePath: string): Promise<boolean> {
           if (
             !killError.message.includes("process has exited") &&
             !killError.message.includes("No such process")
-          ) { // Добавил "No such process" как частый вариант
+          ) {
             console.error(
               `    Не удалось завершить процесс после ошибки: ${killError.message}`,
             );
@@ -587,8 +544,6 @@ const main = async () => {
         status: winDivert_status.running,
       },
     });
-
-    console.log('был вабран - ', action)
 
     type Action = "start" | "restart" | "stop" | "status" | "exit";
 

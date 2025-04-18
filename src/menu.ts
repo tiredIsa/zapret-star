@@ -1,3 +1,5 @@
+import config from "./config/config.json" with { type: "json" };
+
 const HIDE_CURSOR = "\x1b[?25l";
 const SHOW_CURSOR = "\x1b[?25h";
 const CLEAR_LINE = "\x1b[2K";
@@ -37,7 +39,7 @@ const drawHeader = (zapret: { status: boolean; autostart: boolean }, winDivert: 
   const winDivert_autostart = winDivert.autostart ? ` Включено ` : `Выключено`;
 
   const logo = [
-    `Автор: tiredIsa                                                               Версия: 0.0.1`,
+    `Автор: tiredIsa                                                               Версия: ${config.version}`,
     `▒███████▒ ▄▄▄       ██▓███   ██▀███  ▓█████▄▄▄█████▓    ██████ ▄▄▄█████▓ ▄▄▄       ██▀███  `,
     `▒ ▒ ▒ ▄▀░▒████▄    ▓██░  ██▒▓██ ▒ ██▒▓█   ▀▓  ██▒ ▓▒  ▒██    ▒ ▓  ██▒ ▓▒▒████▄    ▓██ ▒ ██▒`,
     `░ ▒ ▄▀▒░ ▒██  ▀█▄  ▓██░ ██▓▒▓██ ░▄█ ▒▒███  ▒ ▓██░ ▒░  ░ ▓██▄   ▒ ▓██░ ▒░▒██  ▀█▄  ▓██ ░▄█ ▒`,
