@@ -485,7 +485,6 @@ async function editFileInteractive(filePath: string): Promise<boolean> {
   }
 }
 
-
 const main = async () => {
   await ensureAdminOrRelaunch();
 

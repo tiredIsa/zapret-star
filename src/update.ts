@@ -83,7 +83,7 @@ export function runInstaller(installerPath: string) {
     args: [
       "/VERYSILENT",
       "/SUPPRESSMSGBOXES",
-      "/NORESTART"
+      "/NORESTART",
     ],
     stdout: "inherit",
     stderr: "inherit",
