@@ -7,6 +7,7 @@ const winwsPath = join(executableDir, "/bin/winws.exe");
 const listsPath = join(executableDir, "/lists");
 import config from "./config/config.json" with { type: "json" };
 import { clear, promptMenu, waitUserInput, write } from "./menu.ts";
+import { checkForUpdates, downloadInstaller, runInstaller } from "./update.ts";
 
 const processNames = {
   zapret: "zapret",
@@ -14,21 +15,11 @@ const processNames = {
   winws: "winws.exe",
 } as const;
 
-interface Config {
-  version: string;
-  strategys: DPIStrategy[];
-}
-
-interface DPIStrategy {
-  name: string;
-  arguments: string[];
-}
-
 async function ensureAdminOrRelaunch(): Promise<void> {
   if (Deno.build.os !== "windows") return;
 
   const exePath = Deno.execPath();
-  
+
   if (!exePath.endsWith(".exe") || exePath.includes("deno.exe")) {
     console.log("Эта функция работает только с .exe приложениями");
     return;
@@ -59,20 +50,22 @@ async function ensureAdminOrRelaunch(): Promise<void> {
   }).output();
 
   if (success) {
-    const psCommand = `Start-Process -FilePath "wt.exe" -ArgumentList @('${exePath.replace(/'/g, "''")}') -Verb RunAs`;
+    const psCommand = `Start-Process -FilePath "wt.exe" -ArgumentList @('${
+      exePath.replace(/'/g, "''")
+    }') -Verb RunAs`;
     new Deno.Command("powershell.exe", {
       args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", psCommand],
     }).spawn();
     Deno.exit(0);
   }
 
-  console.log('no reason to launch THIS')
+  console.log("no reason to launch THIS");
 
   new Deno.Command("powershell", {
     args: [
       "-NoProfile",
       "-Command",
-      `Start-Process -FilePath ${escapedExePath} -Verb RunAs -Wait`
+      `Start-Process -FilePath ${escapedExePath} -Verb RunAs -Wait`,
     ],
   }).spawn();
 
@@ -132,7 +125,7 @@ const executeCommand = async (
 };
 
 const processArgs = (strategy_index: number = 0): string[] => {
-  const strategy: DPIStrategy = config.strategys[strategy_index];
+  const strategy = config.strategys[strategy_index];
   const args = strategy.arguments.map((arg) => {
     arg = arg.replace("{{LIST_PATH}}", `${listsPath}\\`);
     arg = arg.replace("{{BIN_PATH}}", `${binPath}\\`);
@@ -145,7 +138,6 @@ const processArgs = (strategy_index: number = 0): string[] => {
 };
 
 const startZapretAsService = async (args: string[]) => {
-
   const { exist } = await serviceStatus(processNames.zapret);
   if (exist) {
     await stopServiceAndDelete(processNames.zapret);
@@ -170,7 +162,9 @@ const startZapretAsService = async (args: string[]) => {
     );
     return;
   }
-  console.log(`Служба "${processNames.zapret}" создана и настроена на автозапуск.`);
+  console.log(
+    `Служба "${processNames.zapret}" создана и настроена на автозапуск.`,
+  );
 
   const startResult = await executeCommand(
     "sc.exe",
@@ -491,8 +485,11 @@ async function editFileInteractive(filePath: string): Promise<boolean> {
   }
 }
 
+
 const main = async () => {
   await ensureAdminOrRelaunch();
+
+  const hasUpdate = await checkForUpdates();
 
   let is_running = true;
   while (is_running) {
@@ -525,27 +522,36 @@ const main = async () => {
         name: "Статус [DEV]",
         value: "status",
       },
+      hasUpdate: {
+        name: "Доступно обновление!",
+        value: "update",
+      },
       empty: {},
     };
 
     const isZapretRunning = pin ? true : false;
-    const action = await promptMenu([
-      isZapretRunning ? buttons.reload : buttons.start,
-      isZapretRunning ? buttons.stop : buttons.empty,
-      buttons.status,
-      { name: "Выйти", value: "exit" },
-    ], "Выберите действие:", {
-      zapret: {
-        autostart: zapret_status.exist,
-        status: pin ? true : false,
+    const action = await promptMenu(
+      [
+        isZapretRunning ? buttons.reload : buttons.start,
+        isZapretRunning ? buttons.stop : buttons.empty,
+        buttons.status,
+        hasUpdate ? buttons.hasUpdate : buttons.empty,
+        { name: "Выйти", value: "exit" },
+      ],
+      "Выберите действие:",
+      {
+        zapret: {
+          autostart: zapret_status.exist,
+          status: pin ? true : false,
+        },
+        winDivert: {
+          autostart: winDivert_status.exist,
+          status: winDivert_status.running,
+        },
       },
-      winDivert: {
-        autostart: winDivert_status.exist,
-        status: winDivert_status.running,
-      },
-    });
+    );
 
-    type Action = "start" | "restart" | "stop" | "status" | "exit";
+    type Action = "start" | "restart" | "stop" | "status" | "update" | "exit";
 
     const handlers: Record<Action, () => Promise<void>> = {
       start: async () => {
@@ -579,6 +585,25 @@ const main = async () => {
 
         write("\nСтатус службы zapret:\n");
         await serviceStatus(processNames.zapret);
+      },
+
+      update: async () => {
+        write("\nОстановка Zapret...");
+        await handlers.stop();
+
+        write("\nСкачивание новой версии...");
+        write("\nПожалуйста подождите...");
+        const installerPath = await downloadInstaller();
+
+        console.log(installerPath);
+
+        write("\nЗапуск установщика");
+        runInstaller(installerPath);
+
+        write("\nЗакрытие текущего процесса...");
+        new Deno.Command("taskkill", {
+          args: ["/PID", Deno.pid.toString(), "/F"],
+        }).spawn();
       },
 
       exit: async () => {

@@ -31,7 +31,10 @@ export async function clear() {
   }
 }
 
-const drawHeader = (zapret: { status: boolean; autostart: boolean }, winDivert: { status: boolean; autostart: boolean }) => {
+const drawHeader = (
+  zapret: { status: boolean; autostart: boolean },
+  winDivert: { status: boolean; autostart: boolean },
+) => {
   const zapret_status = zapret.status ? `Активно  ` : `Выключено`;
   const zapret_autostart = zapret.autostart ? ` Включено` : `Выключено`;
 
@@ -50,7 +53,6 @@ const drawHeader = (zapret: { status: boolean; autostart: boolean }, winDivert: 
     `░ ░ ░ ░ ░  ░   ▒   ░░         ░░   ░    ░    ░        ░  ░  ░    ░        ░   ▒     ░░   ░ `,
     `  ░ ░          ░  ░            ░        ░  ░                ░                ░  ░   ░     `,
     `░                                                                                          `,
-
     `Статус winws: ${zapret_status}                                               Автозапуск: ${zapret_autostart}`,
     `Статус WinDivert: ${winDivert_status}                                           Автозапуск: ${winDivert_autostart}`,
     `===========================================================================================`,
@@ -72,7 +74,7 @@ export async function promptMenu(
   header: {
     zapret: { status: boolean; autostart: boolean };
     winDivert: { status: boolean; autostart: boolean };
-  }
+  },
 ): Promise<string | null> {
   if (!options || options.length === 0) {
     throw new Error("Options array cannot be empty.");
@@ -100,7 +102,7 @@ export async function promptMenu(
       {
         autostart: header.winDivert.autostart,
         status: header.winDivert.status,
-      }
+      },
     );
 
     if (prompt) {
