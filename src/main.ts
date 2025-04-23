@@ -9,11 +9,50 @@ import config from "./config/config.json" with { type: "json" };
 import { clear, promptMenu, waitUserInput, write } from "./menu.ts";
 import { checkForUpdates, downloadInstaller, runInstaller } from "./update.ts";
 
+interface IUserConfig {
+  lastStrategy: number;
+}
+
+let userConfig: IUserConfig | null = null;
+
 const processNames = {
   zapret: "zapret",
   winDivert: "WinDivert",
   winws: "winws.exe",
 } as const;
+
+const loadUserConfig = async () => {
+  try {
+    const configText = await Deno.readTextFile("user-settings.json");
+    userConfig = JSON.parse(configText) as IUserConfig;
+    console.log("Конфиг пользовательских настроек загружен:", userConfig);
+  } catch (err) {
+    if (err instanceof Deno.errors.NotFound) {
+      console.error("Файл user-settings.json не найден.");
+    } else {
+      console.error("Ошибка при чтении user-settings.json:", err);
+    }
+  }
+}
+
+const writeToUserConfig = async <K extends keyof IUserConfig>(
+  key: K,
+  value: IUserConfig[K]
+) => {
+  if (!userConfig) {
+    console.error("Пользовательские настройки не загружены.");
+    return;
+  }
+
+  userConfig[key] = value;
+
+  try {
+    await Deno.writeTextFile("user-settings.json", JSON.stringify(userConfig, null, 2));
+    console.log("Настройки пользователя успешно сохранены.");
+  } catch (err) {
+    console.error("Ошибка при записи в user-settings.json:", err);
+  }
+};
 
 async function ensureAdminOrRelaunch(): Promise<void> {
   if (Deno.build.os !== "windows") return;
@@ -58,8 +97,6 @@ async function ensureAdminOrRelaunch(): Promise<void> {
     }).spawn();
     Deno.exit(0);
   }
-
-  console.log("no reason to launch THIS");
 
   new Deno.Command("powershell", {
     args: [
@@ -138,11 +175,6 @@ const processArgs = (strategy_index: number = 0): string[] => {
 };
 
 const startZapretAsService = async (args: string[]) => {
-  const { exist } = await serviceStatus(processNames.zapret);
-  if (exist) {
-    await stopServiceAndDelete(processNames.zapret);
-  }
-
   const createResult = await executeCommand(
     "sc.exe",
     [
@@ -488,6 +520,8 @@ async function editFileInteractive(filePath: string): Promise<boolean> {
 const main = async () => {
   await ensureAdminOrRelaunch();
 
+  await loadUserConfig();
+
   const hasUpdate = await checkForUpdates();
 
   let is_running = true;
@@ -555,9 +589,25 @@ const main = async () => {
     const handlers: Record<Action, () => Promise<void>> = {
       start: async () => {
         // TODO: выбор стратегии
+        await handlers.stop(); // на всякий
+
+        //  выбор стратегии
+
+        const strategyIndex = await promptMenu(
+          config.strategys.map((strategy, index) => ({
+            name: strategy.name,
+            value: index + "",
+          })),
+          "Выберите стратегию:",
+        );
+
+        if(!Number(strategyIndex)){
+          write("\nВыход.");
+          return;
+        }
 
         write("\nЗапуск Zapret...");
-        await startZapretAsService(processArgs(0));
+        await startZapretAsService(processArgs(Number(strategyIndex)));
       },
 
       stop: async () => {
@@ -612,7 +662,7 @@ const main = async () => {
     };
 
     clear();
-    handlers[action as Action]();
+    await handlers[action as Action]();
 
     if (action !== "exit") {
       await waitUserInput();
