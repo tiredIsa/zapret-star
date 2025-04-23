@@ -71,7 +71,7 @@ export async function waitUserInput() {
 export async function promptMenu(
   options: { name?: string; value?: string }[],
   prompt: string = "Select an option:",
-  header: {
+  header?: {
     zapret: { status: boolean; autostart: boolean };
     winDivert: { status: boolean; autostart: boolean };
   },
@@ -94,16 +94,18 @@ export async function promptMenu(
 
     // TODO: в terminal не стирать header
 
-    drawHeader(
-      {
-        autostart: header.zapret.autostart,
-        status: header.zapret.status,
-      },
-      {
-        autostart: header.winDivert.autostart,
-        status: header.winDivert.status,
-      },
-    );
+    if(header){
+      drawHeader(
+        {
+          autostart: header.zapret.autostart,
+          status: header.zapret.status,
+        },
+        {
+          autostart: header.winDivert.autostart,
+          status: header.winDivert.status,
+        },
+      );
+    }
 
     if (prompt) {
       write(CLEAR_LINE + "\r" + prompt + "\n");
