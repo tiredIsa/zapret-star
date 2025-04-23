@@ -31,7 +31,8 @@ const loadUserConfig = async () => {
     console.log("Конфиг пользовательских настроек загружен:", userConfig);
   } catch (err) {
     if (err instanceof Deno.errors.NotFound) {
-      console.error("Файл user-settings.json не найден.");
+      await Deno.writeTextFile("user-settings.json", JSON.stringify({}, null, 2));
+      userConfig = JSON.parse(await Deno.readTextFile("user-settings.json")) as IUserConfig;
     } else {
       console.error("Ошибка при чтении user-settings.json:", err);
     }
@@ -615,7 +616,7 @@ const main = async () => {
 
         console.log('выбранная стратегия: ', strategyIndex);
 
-        if(isNaN(Number(strategyIndex)) || strategyIndex === "exit") {
+        if(strategyIndex && !/^[0-9]+$/.test(strategyIndex) || strategyIndex === "exit") {
           write("\nВыход.");
           return;
         }
