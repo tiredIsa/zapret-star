@@ -575,7 +575,7 @@ const main = async () => {
         isZapretRunning ? buttons.reload : buttons.start,
         isZapretRunning ? buttons.stop : buttons.empty,
         buttons.status,
-        buttons.resetUserSettings,
+        //buttons.resetUserSettings,
         hasUpdate ? buttons.hasUpdate : buttons.empty,
         { name: "Выйти", value: "exit" },
       ],
@@ -613,7 +613,9 @@ const main = async () => {
           "Выберите стратегию:",
         );
 
-        if(!Number(strategyIndex) || strategyIndex === "exit") {
+        console.log('выбранная стратегия: ', strategyIndex);
+
+        if(isNaN(Number(strategyIndex)) || strategyIndex === "exit") {
           write("\nВыход.");
           return;
         }
