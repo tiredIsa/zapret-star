@@ -10,7 +10,10 @@ import { clear, promptMenu, waitUserInput, write } from "./menu.ts";
 import { checkForUpdates, downloadInstaller, runInstaller } from "./update.ts";
 
 interface IUserConfig {
-  lastStrategy: number;
+  lastStrategy: {
+    name: string;
+    value: number;
+  };
 }
 
 let userConfig: IUserConfig | null = null;
@@ -555,6 +558,10 @@ const main = async () => {
         name: "Статус [DEV]",
         value: "status",
       },
+      resetUserSettings: {
+        name: "Сбросить настройки пользователя [DEV]",
+        value: "resetUserSettings",
+      },
       hasUpdate: {
         name: "Доступно обновление!",
         value: "update",
@@ -568,6 +575,7 @@ const main = async () => {
         isZapretRunning ? buttons.reload : buttons.start,
         isZapretRunning ? buttons.stop : buttons.empty,
         buttons.status,
+        buttons.resetUserSettings,
         hasUpdate ? buttons.hasUpdate : buttons.empty,
         { name: "Выйти", value: "exit" },
       ],
@@ -594,17 +602,23 @@ const main = async () => {
         //  выбор стратегии
 
         const strategyIndex = await promptMenu(
-          config.strategys.map((strategy, index) => ({
-            name: strategy.name,
-            value: index + "",
-          })),
+          [
+            userConfig?.lastStrategy ? { name: `~. ${userConfig?.lastStrategy.name} (последняя активная)`, value: userConfig.lastStrategy.value.toString() } : {},
+            ...config.strategys.map((strategy, index) => ({
+              name: `${index}. ${strategy.name}`,
+              value: index + "",
+            })),
+            { name: "Отмена", value: "exit" },
+          ],
           "Выберите стратегию:",
         );
 
-        if(!Number(strategyIndex)){
+        if(!Number(strategyIndex) || strategyIndex === "exit") {
           write("\nВыход.");
           return;
         }
+
+        await writeToUserConfig("lastStrategy", { name: config.strategys[Number(strategyIndex)].name, value: Number(strategyIndex) });
 
         write("\nЗапуск Zapret...");
         await startZapretAsService(processArgs(Number(strategyIndex)));
