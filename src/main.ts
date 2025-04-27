@@ -1,4 +1,4 @@
-import { dirname, join } from "https://deno.land/std@0.218.2/path/mod.ts";
+import { dirname, join } from "https://deno.land/std@0.224.0/path/mod.ts";
 
 const executablePath = Deno.execPath();
 const executableDir = dirname(executablePath);
@@ -26,18 +26,24 @@ const processNames = {
 } as const;
 
 const loadUserConfig = async () => {
+  const configPath = join(dirname(Deno.execPath()), "user-settings.json");
+
   try {
-    const configText = await Deno.readTextFile("user-settings.json");
+    console.log("Пытаюсь загрузить файл из:", configPath);
+    const configText = await Deno.readTextFile(configPath);
+    console.log(configText);
     userConfig = JSON.parse(configText) as IUserConfig;
     console.log("Конфиг пользовательских настроек загружен:", userConfig);
   } catch (err) {
+    console.log(err);
     if (err instanceof Deno.errors.NotFound) {
+      console.log("Создаю новый файл конфигурации в:", configPath);
       await Deno.writeTextFile(
-        "user-settings.json",
+        configPath,
         JSON.stringify({}, null, 2),
       );
       userConfig = JSON.parse(
-        await Deno.readTextFile("user-settings.json"),
+        await Deno.readTextFile(configPath),
       ) as IUserConfig;
     } else {
       console.error("Ошибка при чтении user-settings.json:", err);
@@ -71,11 +77,6 @@ async function ensureAdminOrRelaunch(): Promise<void> {
   if (Deno.build.os !== "windows") return;
 
   const exePath = Deno.execPath();
-
-  if (!exePath.endsWith(".exe") || exePath.includes("deno.exe")) {
-    console.log("Эта функция работает только с .exe приложениями");
-    return;
-  }
 
   const isAdmin = await new Deno.Command("net", {
     args: ["session"],
@@ -115,7 +116,7 @@ async function ensureAdminOrRelaunch(): Promise<void> {
     args: [
       "-NoProfile",
       "-Command",
-      `Start-Process -FilePath ${escapedExePath} -Verb RunAs -Wait`,
+      `Start-Process -FilePath ${escapedExePath} -Verb RunAs`,
     ],
   }).spawn();
 
@@ -573,14 +574,24 @@ const main = async () => {
     empty: {},
   };
 
-  let is_running = true;
-  while (is_running) {
+  const findProcesses = async() => {
     const pin = await findProcess(processNames.winws);
     const zapret_status = await serviceStatus(processNames.zapret);
     const winDivert_status = await serviceStatus(processNames.winDivert);
 
-    const isZapretRunning = pin ? true : false;
-    type Action = "start" | "restart" | "stop" | "status" | "update" | "exit";
+    return {
+      pin,
+      isZapretRunning: pin ? true : false,
+      zapret_status,
+      winDivert_status,
+    };
+  }
+
+  let isRunning = true;
+  while (isRunning) {
+    const { pin, zapret_status, winDivert_status, isZapretRunning } = await findProcesses();
+
+    type Action = "start" | "startAfterUpdate" | "restart" | "stop" | "status" | "update" | "exit";
 
     const handlers: Record<Action, () => Promise<void>> = {
       start: async () => {
@@ -623,7 +634,27 @@ const main = async () => {
         write("\nЗапуск Zapret...");
         await startZapretAsService(processArgs(Number(strategyIndex)));
       },
+      startAfterUpdate: async () => {
+        await handlers.stop(); // на всякий
 
+        const strategyIndex = userConfig?.lastStrategy.value.toString();
+
+        if (
+          strategyIndex && !/^[0-9]+$/.test(strategyIndex) ||
+          strategyIndex === "exit"
+        ) {
+          write("\nВыход.");
+          return;
+        }
+
+        if(!strategyIndex) {
+          write("\nОшибка: Не найдена последняя стратегия.");
+          return;
+        }
+
+        write("\nЗапуск Zapret...");
+        await startZapretAsService(processArgs(Number(strategyIndex)));
+      },
       stop: async () => {
         write("\nОстановка winws...");
         await stopProcess(pin!);
@@ -634,12 +665,10 @@ const main = async () => {
         write("\nУдаление службы WinDivert...");
         await stopServiceAndDelete(processNames.winDivert);
       },
-
       restart: async () => {
         await handlers.stop();
         await handlers.start();
       },
-
       status: async () => {
         write("\nСтатус службы WinDivert:\n");
         await serviceStatus(processNames.winDivert);
@@ -649,7 +678,6 @@ const main = async () => {
         write("\nСтатус службы zapret:\n");
         await serviceStatus(processNames.zapret);
       },
-
       update: async () => {
         await writeToUserConfig("startAfterUpdate", true);
         write("\nОстановка Zapret...");
@@ -669,12 +697,19 @@ const main = async () => {
           args: ["/PID", Deno.pid.toString(), "/F"],
         }).spawn();
       },
-
       exit: async () => {
-        is_running = false;
+        isRunning = false;
         write("\nВыход.");
       },
     };
+
+    // console.log(userConfig);
+    // await waitUserInput();
+
+    if(userConfig?.startAfterUpdate){
+      await handlers.startAfterUpdate();
+      await writeToUserConfig("startAfterUpdate", false);
+    }
 
     const action = await promptMenu(
       [
