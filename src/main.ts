@@ -14,6 +14,7 @@ interface IUserConfig {
     name: string;
     value: number;
   };
+  startAfterUpdate: boolean;
 }
 
 let userConfig: IUserConfig | null = null;
@@ -31,17 +32,22 @@ const loadUserConfig = async () => {
     console.log("Конфиг пользовательских настроек загружен:", userConfig);
   } catch (err) {
     if (err instanceof Deno.errors.NotFound) {
-      await Deno.writeTextFile("user-settings.json", JSON.stringify({}, null, 2));
-      userConfig = JSON.parse(await Deno.readTextFile("user-settings.json")) as IUserConfig;
+      await Deno.writeTextFile(
+        "user-settings.json",
+        JSON.stringify({}, null, 2),
+      );
+      userConfig = JSON.parse(
+        await Deno.readTextFile("user-settings.json"),
+      ) as IUserConfig;
     } else {
       console.error("Ошибка при чтении user-settings.json:", err);
     }
   }
-}
+};
 
 const writeToUserConfig = async <K extends keyof IUserConfig>(
   key: K,
-  value: IUserConfig[K]
+  value: IUserConfig[K],
 ) => {
   if (!userConfig) {
     console.error("Пользовательские настройки не загружены.");
@@ -51,7 +57,10 @@ const writeToUserConfig = async <K extends keyof IUserConfig>(
   userConfig[key] = value;
 
   try {
-    await Deno.writeTextFile("user-settings.json", JSON.stringify(userConfig, null, 2));
+    await Deno.writeTextFile(
+      "user-settings.json",
+      JSON.stringify(userConfig, null, 2),
+    );
     console.log("Настройки пользователя успешно сохранены.");
   } catch (err) {
     console.error("Ошибка при записи в user-settings.json:", err);
@@ -522,89 +531,71 @@ async function editFileInteractive(filePath: string): Promise<boolean> {
 }
 
 const main = async () => {
+  if (Deno.build.os !== "windows") {
+    console.error("Эта программа предназначена только для Windows.");
+    return false;
+  }
   await ensureAdminOrRelaunch();
 
   await loadUserConfig();
 
   const hasUpdate = await checkForUpdates();
 
+  const buttons = {
+    start: {
+      name: "Запустить",
+      value: "start",
+    },
+    reload: {
+      name: "Перезапустить",
+      value: "restart",
+    },
+    stop: {
+      name: "Остановить",
+      value: "stop",
+    },
+    stopDev: {
+      name: "Остановить [DEV]",
+      value: "stop",
+    },
+    status: {
+      name: "Статус [DEV]",
+      value: "status",
+    },
+    resetUserSettings: {
+      name: "Сбросить настройки пользователя [DEV]",
+      value: "resetUserSettings",
+    },
+    hasUpdate: {
+      name: "Доступно обновление!",
+      value: "update",
+    },
+    empty: {},
+  };
+
   let is_running = true;
   while (is_running) {
-    if (Deno.build.os !== "windows") {
-      console.error("Эта программа предназначена только для Windows.");
-      return false;
-    }
     const pin = await findProcess(processNames.winws);
     const zapret_status = await serviceStatus(processNames.zapret);
     const winDivert_status = await serviceStatus(processNames.winDivert);
 
-    const buttons = {
-      start: {
-        name: "Запустить",
-        value: "start",
-      },
-      reload: {
-        name: "Перезапустить",
-        value: "restart",
-      },
-      stop: {
-        name: "Остановить",
-        value: "stop",
-      },
-      stopDev: {
-        name: "Остановить [DEV]",
-        value: "stop",
-      },
-      status: {
-        name: "Статус [DEV]",
-        value: "status",
-      },
-      resetUserSettings: {
-        name: "Сбросить настройки пользователя [DEV]",
-        value: "resetUserSettings",
-      },
-      hasUpdate: {
-        name: "Доступно обновление!",
-        value: "update",
-      },
-      empty: {},
-    };
-
     const isZapretRunning = pin ? true : false;
-    const action = await promptMenu(
-      [
-        isZapretRunning ? buttons.reload : buttons.start,
-        isZapretRunning ? buttons.stop : buttons.empty,
-        buttons.status,
-        //buttons.resetUserSettings,
-        hasUpdate ? buttons.hasUpdate : buttons.empty,
-        { name: "Выйти", value: "exit" },
-      ],
-      "Выберите действие:",
-      {
-        zapret: {
-          autostart: zapret_status.exist,
-          status: pin ? true : false,
-        },
-        winDivert: {
-          autostart: winDivert_status.exist,
-          status: winDivert_status.running,
-        },
-      },
-    );
-
     type Action = "start" | "restart" | "stop" | "status" | "update" | "exit";
 
     const handlers: Record<Action, () => Promise<void>> = {
       start: async () => {
-        // TODO: выбор стратегии
         await handlers.stop(); // на всякий
 
         //  выбор стратегии
-
         const strategyIndex = await promptMenu(
           [
-            userConfig?.lastStrategy ? { name: `~. ${userConfig?.lastStrategy.name} (последняя активная)`, value: userConfig.lastStrategy.value.toString() } : {},
+            userConfig?.lastStrategy
+              ? {
+                name:
+                  `~. ${userConfig?.lastStrategy.name} (последняя активная)`,
+                value: userConfig.lastStrategy.value.toString(),
+              }
+              : {},
             ...config.strategys.map((strategy, index) => ({
               name: `${index}. ${strategy.name}`,
               value: index + "",
@@ -614,14 +605,20 @@ const main = async () => {
           "Выберите стратегию:",
         );
 
-        console.log('выбранная стратегия: ', strategyIndex);
+        console.log("выбранная стратегия: ", strategyIndex);
 
-        if(strategyIndex && !/^[0-9]+$/.test(strategyIndex) || strategyIndex === "exit") {
+        if (
+          strategyIndex && !/^[0-9]+$/.test(strategyIndex) ||
+          strategyIndex === "exit"
+        ) {
           write("\nВыход.");
           return;
         }
 
-        await writeToUserConfig("lastStrategy", { name: config.strategys[Number(strategyIndex)].name, value: Number(strategyIndex) });
+        await writeToUserConfig("lastStrategy", {
+          name: config.strategys[Number(strategyIndex)].name,
+          value: Number(strategyIndex),
+        });
 
         write("\nЗапуск Zapret...");
         await startZapretAsService(processArgs(Number(strategyIndex)));
@@ -654,6 +651,7 @@ const main = async () => {
       },
 
       update: async () => {
+        await writeToUserConfig("startAfterUpdate", true);
         write("\nОстановка Zapret...");
         await handlers.stop();
 
@@ -678,6 +676,28 @@ const main = async () => {
       },
     };
 
+    const action = await promptMenu(
+      [
+        isZapretRunning ? buttons.reload : buttons.start,
+        isZapretRunning ? buttons.stop : buttons.empty,
+        buttons.status,
+        //buttons.resetUserSettings,
+        hasUpdate ? buttons.hasUpdate : buttons.empty,
+        { name: "Выйти", value: "exit" },
+      ],
+      "Выберите действие:",
+      {
+        zapret: {
+          autostart: zapret_status.exist,
+          status: pin ? true : false,
+        },
+        winDivert: {
+          autostart: winDivert_status.exist,
+          status: winDivert_status.running,
+        },
+      },
+    );
+
     clear();
     await handlers[action as Action]();
 
@@ -686,4 +706,5 @@ const main = async () => {
     }
   }
 };
+
 main();
