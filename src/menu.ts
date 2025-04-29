@@ -94,7 +94,7 @@ export async function promptMenu(
 
     // TODO: в terminal не стирать header
 
-    if(header){
+    if (header) {
       drawHeader(
         {
           autostart: header.zapret.autostart,
