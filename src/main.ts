@@ -16,8 +16,44 @@ interface IUserConfig {
   };
   startAfterUpdate: boolean;
 }
-
 let userConfig: IUserConfig | null = null;
+
+const DEFAULT_USER_CONFIG: IUserConfig = {
+  lastStrategy: { name: "default", value: 0 },
+  startAfterUpdate: false,
+} as const;
+
+const MENU_BUTTONS = {
+  start: {
+    name: "Запустить",
+    value: "start",
+  },
+  reload: {
+    name: "Перезапустить",
+    value: "restart",
+  },
+  stop: {
+    name: "Остановить",
+    value: "stop",
+  },
+  stopDev: {
+    name: "Остановить [DEV]",
+    value: "stop",
+  },
+  status: {
+    name: "Статус [DEV]",
+    value: "status",
+  },
+  resetUserSettings: {
+    name: "Сбросить настройки пользователя [DEV]",
+    value: "resetUserSettings",
+  },
+  hasUpdate: {
+    name: "Доступно обновление!",
+    value: "update",
+  },
+  empty: {},
+} as const;
 
 const processNames = {
   zapret: "zapret",
@@ -25,22 +61,59 @@ const processNames = {
   winws: "winws.exe",
 } as const;
 
+function isValidUserConfig(obj: any): obj is IUserConfig {
+  if (!obj || typeof obj !== "object") {
+    return false;
+  }
+  if (typeof obj.startAfterUpdate !== "boolean") {
+    console.warn("Поле 'startAfterUpdate' отсутствует или имеет неверный тип.");
+    return false; // Или можно присвоить значение по умолчанию здесь
+  }
+  if (!obj.lastStrategy || typeof obj.lastStrategy !== "object") {
+    console.warn("Поле 'lastStrategy' отсутствует или имеет неверный тип.");
+    return false;
+  }
+  if (typeof obj.lastStrategy.name !== "string") {
+    console.warn(
+      "Поле 'lastStrategy.name' отсутствует или имеет неверный тип.",
+    );
+    return false;
+  }
+  if (typeof obj.lastStrategy.value !== "number") {
+    console.warn(
+      "Поле 'lastStrategy.value' отсутствует или имеет неверный тип.",
+    );
+    return false;
+  }
+  return true;
+}
+
 const loadUserConfig = async () => {
   const configPath = join(dirname(Deno.execPath()), "user-settings.json");
 
   try {
     console.log("Пытаюсь загрузить файл из:", configPath);
-    const configText = await Deno.readTextFile(configPath);
-    console.log(configText);
-    userConfig = JSON.parse(configText) as IUserConfig;
-    console.log("Конфиг пользовательских настроек загружен:", userConfig);
+    const loadedConfig = await Deno.readTextFile(configPath);
+    if (isValidUserConfig(loadedConfig)) {
+      userConfig = loadedConfig;
+      console.log("Конфиг валиден и загружен:", userConfig);
+    } else {
+      console.warn(
+        "Обнаружена невалидная структура конфига. Используются настройки по умолчанию.",
+      );
+      userConfig = { ...DEFAULT_USER_CONFIG };
+      await Deno.writeTextFile(
+        configPath,
+        JSON.stringify(DEFAULT_USER_CONFIG, null, 2),
+      );
+    }
   } catch (err) {
     console.log(err);
     if (err instanceof Deno.errors.NotFound) {
       console.log("Создаю новый файл конфигурации в:", configPath);
       await Deno.writeTextFile(
         configPath,
-        JSON.stringify({}, null, 2),
+        JSON.stringify(DEFAULT_USER_CONFIG, null, 2),
       );
       userConfig = JSON.parse(
         await Deno.readTextFile(configPath),
@@ -531,6 +604,19 @@ async function editFileInteractive(filePath: string): Promise<boolean> {
   }
 }
 
+async function findAllZapretProcesses() {
+  const pin = await findProcess(processNames.winws);
+  const zapret_status = await serviceStatus(processNames.zapret);
+  const winDivert_status = await serviceStatus(processNames.winDivert);
+
+  return {
+    pin,
+    isZapretRunning: pin ? true : false,
+    zapret_status,
+    winDivert_status,
+  };
+}
+
 const main = async () => {
   if (Deno.build.os !== "windows") {
     console.error("Эта программа предназначена только для Windows.");
@@ -542,56 +628,20 @@ const main = async () => {
 
   const hasUpdate = await checkForUpdates();
 
-  const buttons = {
-    start: {
-      name: "Запустить",
-      value: "start",
-    },
-    reload: {
-      name: "Перезапустить",
-      value: "restart",
-    },
-    stop: {
-      name: "Остановить",
-      value: "stop",
-    },
-    stopDev: {
-      name: "Остановить [DEV]",
-      value: "stop",
-    },
-    status: {
-      name: "Статус [DEV]",
-      value: "status",
-    },
-    resetUserSettings: {
-      name: "Сбросить настройки пользователя [DEV]",
-      value: "resetUserSettings",
-    },
-    hasUpdate: {
-      name: "Доступно обновление!",
-      value: "update",
-    },
-    empty: {},
-  };
-
-  const findProcesses = async() => {
-    const pin = await findProcess(processNames.winws);
-    const zapret_status = await serviceStatus(processNames.zapret);
-    const winDivert_status = await serviceStatus(processNames.winDivert);
-
-    return {
-      pin,
-      isZapretRunning: pin ? true : false,
-      zapret_status,
-      winDivert_status,
-    };
-  }
-
   let isRunning = true;
-  while (isRunning) {
-    const { pin, zapret_status, winDivert_status, isZapretRunning } = await findProcesses();
 
-    type Action = "start" | "startAfterUpdate" | "restart" | "stop" | "status" | "update" | "exit";
+  while (isRunning) {
+    const { pin, zapret_status, winDivert_status, isZapretRunning } =
+      await findAllZapretProcesses();
+
+    type Action =
+      | "start"
+      | "startAfterUpdate"
+      | "restart"
+      | "stop"
+      | "status"
+      | "update"
+      | "exit";
 
     const handlers: Record<Action, () => Promise<void>> = {
       start: async () => {
@@ -647,7 +697,7 @@ const main = async () => {
           return;
         }
 
-        if(!strategyIndex) {
+        if (!strategyIndex) {
           write("\nОшибка: Не найдена последняя стратегия.");
           return;
         }
@@ -703,21 +753,18 @@ const main = async () => {
       },
     };
 
-    // console.log(userConfig);
-    // await waitUserInput();
-
-    if(userConfig?.startAfterUpdate){
+    if (userConfig?.startAfterUpdate === true) {
       await handlers.startAfterUpdate();
       await writeToUserConfig("startAfterUpdate", false);
     }
 
     const action = await promptMenu(
       [
-        isZapretRunning ? buttons.reload : buttons.start,
-        isZapretRunning ? buttons.stop : buttons.empty,
-        buttons.status,
-        //buttons.resetUserSettings,
-        hasUpdate ? buttons.hasUpdate : buttons.empty,
+        isZapretRunning ? MENU_BUTTONS.reload : MENU_BUTTONS.start,
+        isZapretRunning ? MENU_BUTTONS.stop : MENU_BUTTONS.empty,
+        MENU_BUTTONS.status,
+        //MENU_BUTTONS.resetUserSettings,
+        hasUpdate ? MENU_BUTTONS.hasUpdate : MENU_BUTTONS.empty,
         { name: "Выйти", value: "exit" },
       ],
       "Выберите действие:",
