@@ -20,7 +20,7 @@ ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; \
 Check: NeedsAddPath('{app}')
 
 [Run]
-Filename: "{app}\zapret-star"; Description: "Запустить Zapret-Star"; Flags: nowait postinstall
+Filename: "{app}\zapret-star"; Description: "Запустить Zapret-Star"; Flags: nowait postinstall runasoriginaluser
 
 [Code]
 function NeedsAddPath(Param: string): boolean;
