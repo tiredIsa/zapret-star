@@ -1,7 +1,7 @@
 [Setup]
 AppId=zapret-star
 AppName=zapret-star
-AppVersion=0.3
+AppVersion=0.4
 DefaultDirName={commonpf}\zapret-star
 DefaultGroupName=Zapret-Star
 OutputBaseFilename=Zapret-star-Installer
