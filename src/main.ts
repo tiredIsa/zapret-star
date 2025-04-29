@@ -753,8 +753,12 @@ const main = async () => {
       },
     };
 
-    if (userConfig?.startAfterUpdate === true) {
-      await handlers.startAfterUpdate();
+    if (userConfig?.lastStrategy && userConfig?.startAfterUpdate === true) {
+      try {
+        await handlers.startAfterUpdate();
+      } catch (e) {
+        console.error("Ошибка при запуске после обновления:", e);
+      }
       await writeToUserConfig("startAfterUpdate", false);
     }
 
