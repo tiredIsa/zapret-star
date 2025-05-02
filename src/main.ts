@@ -15,12 +15,14 @@ interface IUserConfig {
     value: number;
   };
   startAfterUpdate: boolean;
+  restartCount: number;
 }
 let userConfig: IUserConfig | null = null;
 
 const DEFAULT_USER_CONFIG: IUserConfig = {
   lastStrategy: { name: "default", value: 0 },
   startAfterUpdate: false,
+  restartCount: 0,
 } as const;
 
 const MENU_BUTTONS = {
@@ -146,10 +148,8 @@ const writeToUserConfig = async <K extends keyof IUserConfig>(
   }
 };
 
-async function ensureAdminOrRelaunch(): Promise<void> {
-  if (Deno.build.os !== "windows") return;
-
-  const exePath = Deno.execPath();
+async function checkAdminRights(): Promise<boolean> {
+  if (Deno.build.os !== "windows") return true;
 
   const isAdmin = await new Deno.Command("net", {
     args: ["session"],
@@ -159,8 +159,14 @@ async function ensureAdminOrRelaunch(): Promise<void> {
     .then(({ success }) => success)
     .catch(() => false);
 
-  if (isAdmin) return;
+  console.log("isAdmin", isAdmin);
+  return isAdmin;
+}
 
+async function restartAsAdmin(): Promise<void> {
+  if (Deno.build.os !== "windows") return;
+
+  const exePath = Deno.execPath();
   console.log("Требуются права администратора. Перезапуск...");
 
   const escapeForPowerShell = (str: string): string => {
@@ -194,6 +200,15 @@ async function ensureAdminOrRelaunch(): Promise<void> {
   }).spawn();
 
   Deno.exit(0);
+}
+
+async function ensureAdminOrRelaunch(): Promise<void> {
+  if (Deno.build.os !== "windows") return;
+
+  const isAdmin = await checkAdminRights();
+  if (isAdmin) return;
+
+  await restartAsAdmin();
 }
 
 const executeCommand = async (
@@ -617,12 +632,84 @@ async function findAllZapretProcesses() {
   };
 }
 
+async function getProcessParentName(): Promise<string> {
+  if (Deno.build.os !== "windows") return "unknown";
+
+  try {
+    const command = new Deno.Command("wmic", {
+      args: [
+        "process",
+        "where",
+        `ProcessId=${Deno.pid}`,
+        "get",
+        "ParentProcessId",
+      ],
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const output = await command.output();
+    const decoder = new TextDecoder();
+    const stdout = decoder.decode(output.stdout).trim();
+    
+    // Extract the parent PID from the output
+    const parentPid = stdout.split("\n")[1]?.trim();
+    if (!parentPid) return "unknown";
+
+    // Get the parent process name
+    const parentCommand = new Deno.Command("wmic", {
+      args: [
+        "process",
+        "where",
+        `ProcessId=${parentPid}`,
+        "get",
+        "Name",
+      ],
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const parentOutput = await parentCommand.output();
+    const parentStdout = decoder.decode(parentOutput.stdout).trim();
+    const parentName = parentStdout.split("\n")[1]?.trim() || "unknown";
+
+    // Map common terminal names to more readable formats
+    const terminalNames: Record<string, string> = {
+      "cmd.exe": "Command Prompt",
+      "powershell.exe": "PowerShell",
+      "wt.exe": "Windows Terminal",
+      "conhost.exe": "Console Host",
+      "explorer.exe": "Windows Explorer",
+    };
+
+    return terminalNames[parentName] || parentName;
+  } catch (error) {
+    console.error("Error getting process parent name:", error);
+    return "unknown";
+  }
+}
+
 const main = async () => {
   if (Deno.build.os !== "windows") {
     console.error("Эта программа предназначена только для Windows.");
     return false;
   }
   await ensureAdminOrRelaunch();
+
+  const parentName = await getProcessParentName();
+  console.log("Родительский процесс:", parentName);
+
+  if(userConfig?.restartCount && userConfig?.restartCount >= 3) {
+    console.error("Превышено допустимое количество перезапусков.");
+    return false;
+  }
+
+  if (parentName === "unknown") {
+    await writeToUserConfig("restartCount", userConfig?.restartCount ? userConfig.restartCount + 1 : 1);
+    await restartAsAdmin();
+  }
+
+  await writeToUserConfig("restartCount", 0)
 
   await loadUserConfig();
 
@@ -729,6 +816,25 @@ const main = async () => {
         await serviceStatus(processNames.zapret);
       },
       update: async () => {
+        clear()
+        write("\n=== Инструкция по обновлению ===\n");
+        write("1. Дождаться автоматического скачивания установщика новой версии.\n");
+        write("2. В открытом установщике следуйте инструкциям.\n");
+        write("3. После успешной установки, вам необходимо запустить `zapret-star` через терминал.\n");
+        write("4. При первом открытии после обновления программа сама запустит последнюю активную стратегию.\n");
+        write("Приношу свои извинения за неудобства и спасибо за понимание!\n");
+        write("\nНажмите 'Y' для продолжения обновления или 'N' для отмены...\n");
+        
+        let input = await waitUserInput();
+        while (input.toLowerCase() !== 'y' && input.toLowerCase() !== 'n') {
+          write("\nНеверный ввод. Пожалуйста введите 'Y' или 'N'.\n");
+          input = await waitUserInput();
+        }
+        if (input.toLowerCase() !== 'y') {
+          write("\nОбновление отменено.\n");
+          return;
+        }
+
         await writeToUserConfig("startAfterUpdate", true);
         write("\nОстановка Zapret...");
         await handlers.stop();
@@ -784,7 +890,7 @@ const main = async () => {
       },
     );
 
-    clear();
+ //   clear();
     await handlers[action as Action]();
 
     if (action !== "exit") {

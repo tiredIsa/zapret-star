@@ -17,15 +17,21 @@ async function fetchLatestRelease(): Promise<any> {
 }
 
 export async function checkForUpdates(): Promise<boolean> {
-  const latestRelease = await fetchLatestRelease();
-  const latestTag: string = latestRelease.tag_name;
-  const preRelease: boolean = latestRelease.prerelease;
+  try {
+    const latestRelease = await fetchLatestRelease();
+    const latestTag: string = latestRelease.tag_name;
+    const preRelease: boolean = latestRelease.prerelease;
 
-  if (
-    latestTag !== CURRENT_VERSION && !preRelease
-  ) {
-    return true;
-  } else {
+    if (
+      latestTag !== CURRENT_VERSION && !preRelease
+    ) {
+      return true;
+    } else {
+      return false;
+    }
+  } catch (error) {
+    // If it's a rate limit error (403) or any other error, just continue without update check
+    console.log("Не удалось проверить обновления. Продолжаем работу...");
     return false;
   }
 }
@@ -72,20 +78,50 @@ export async function downloadInstaller(): Promise<string> {
   if (!dlResp.ok) {
     throw new Error(`Download error: ${dlResp.status} ${dlResp.statusText}`);
   }
-  const buf = new Uint8Array(await dlResp.arrayBuffer());
-  await Deno.writeFile(tmpPath, buf);
+  const contentLength = Number(dlResp.headers.get("content-length"));
+  if (!contentLength || isNaN(contentLength)) {
+    throw new Error("Не удалось получить размер файла для прогресса");
+  }
+
+  const file = await Deno.open(tmpPath, { write: true, create: true, truncate: true });
+  const reader = dlResp.body?.getReader();
+  if (!reader) throw new Error("Не удалось получить поток для скачивания");
+
+  let received = 0;
+  const barLength = 40;
+  function renderBar(percent: number) {
+    const filled = Math.round(barLength * percent);
+    const empty = barLength - filled;
+    const bar = `[#${"=".repeat(filled)}${" ".repeat(empty)}]`;
+    const pct = (percent * 100).toFixed(1).padStart(5, " ");
+    Deno.stdout.writeSync(new TextEncoder().encode(`\rСкачивание: ${bar} ${pct}%`));
+  }
+
+  renderBar(0);
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      await file.write(value);
+      received += value.length;
+      renderBar(Math.min(received / contentLength, 1));
+    }
+  }
+  file.close();
+  Deno.stdout.writeSync(new TextEncoder().encode("\n"));
 
   return tmpPath;
 }
 
-export function runInstaller(installerPath: string) {
-  new Deno.Command(installerPath, {
-    args: [
-      "/VERYSILENT",
-      "/SUPPRESSMSGBOXES",
-      "/NORESTART",
-    ],
+const _installerPathTemp = "E:\\Nextcloud\\Files\\Code\\Other\\zapret-deno\\Output\\Zapret-star-Installer.exe"
+
+export async function runInstaller(installerPath: string) {
+  console.log("\nУстановщик скачан. Сейчас программа закроется для обновления. Пожалуйста, следуйте инструкциям установщика.\n");
+
+  const process = new Deno.Command(_installerPathTemp, {
     stdout: "inherit",
     stderr: "inherit",
   }).spawn();
+
+  Deno.exit(0);
 }
