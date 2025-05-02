@@ -20,13 +20,6 @@ ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; \
 Check: NeedsAddPath('{app}')
 
 [Run]
-; Запускает zapret-star.exe из папки установки ({app})
-; Description: Текст, который увидит пользователь рядом с галочкой на последней странице
-; WorkingDir: Устанавливает рабочую директорию, чтобы программа нашла свои файлы
-; Flags:
-;   postinstall - Показать опцию на последней странице мастера (включена по умолчанию)
-;   nowait - Не ждать завершения zapret-star.exe, чтобы мастер установки мог закрыться
-;   shellexec - Использовать ShellExecute для запуска (часто более надежно для GUI приложений)
 Filename: "{app}\zapret-star.exe"; Description: "Запустить Zapret-Star после установки"; WorkingDir: "{app}"; Flags: nowait shellexec postinstall
 
 
