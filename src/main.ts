@@ -694,24 +694,30 @@ const main = async () => {
     console.error("Эта программа предназначена только для Windows.");
     return false;
   }
-  await ensureAdminOrRelaunch();
-
+  
+  await loadUserConfig();
+  
+  const isAdmin = await checkAdminRights();
+  if (!isAdmin) {
+    console.log("Запуск без прав администратора, перезапускаю...");
+    
+    const currentCount = userConfig?.restartCount || 0;
+    if (currentCount >= 3) {
+      console.error("Превышено допустимое количество перезапусков (3).");
+      console.error("Пожалуйста, запустите программу вручную от имени администратора.");
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      Deno.exit(1);
+    }
+    
+    await writeToUserConfig("restartCount", currentCount + 1);
+    await restartAsAdmin();
+    Deno.exit(0);
+  }
+  
+  await writeToUserConfig("restartCount", 0);
+  
   const parentName = await getProcessParentName();
   console.log("Родительский процесс:", parentName);
-
-  if(userConfig?.restartCount && userConfig?.restartCount >= 3) {
-    console.error("Превышено допустимое количество перезапусков.");
-    return false;
-  }
-
-  if (parentName === "unknown") {
-    await writeToUserConfig("restartCount", userConfig?.restartCount ? userConfig.restartCount + 1 : 1);
-    await restartAsAdmin();
-  }
-
-  await writeToUserConfig("restartCount", 0)
-
-  await loadUserConfig();
 
   const hasUpdate = await checkForUpdates();
 
