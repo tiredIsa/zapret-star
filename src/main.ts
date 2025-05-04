@@ -129,10 +129,10 @@ const loadUserConfig = async () => {
 const writeToUserConfig = async <K extends keyof IUserConfig>(
   key: K,
   value: IUserConfig[K],
-) => {
+): Promise<boolean> => {
   if (!userConfig) {
     console.error("Пользовательские настройки не загружены.");
-    return;
+    return false;
   }
 
   userConfig[key] = value;
@@ -142,9 +142,10 @@ const writeToUserConfig = async <K extends keyof IUserConfig>(
       "user-settings.json",
       JSON.stringify(userConfig, null, 2),
     );
-    console.log("Настройки пользователя успешно сохранены.");
+    return true;
   } catch (err) {
     console.error("Ошибка при записи в user-settings.json:", err);
+    return false;
   }
 };
 
@@ -163,43 +164,48 @@ async function checkAdminRights(): Promise<boolean> {
   return isAdmin;
 }
 
-async function restartAsAdmin(): Promise<void> {
-  if (Deno.build.os !== "windows") return;
+async function restartAsAdmin(): Promise<boolean> {
+  if (Deno.build.os !== "windows") return true;
 
-  const exePath = Deno.execPath();
-  console.log("Требуются права администратора. Перезапуск...");
+  try {
+    const exePath = Deno.execPath();
+    console.log("Требуются права администратора. Перезапуск...");
 
-  const escapeForPowerShell = (str: string): string => {
-    return `'${str.replace(/'/g, "''")}'`;
-  };
+    const escapeForPowerShell = (str: string): string => {
+      return `'${str.replace(/'/g, "''")}'`;
+    };
 
-  const escapedExePath = escapeForPowerShell(exePath);
+    const escapedExePath = escapeForPowerShell(exePath);
 
-  const { success } = await new Deno.Command("where", {
-    args: ["wt.exe"],
-    stdout: "null",
-    stderr: "null",
-  }).output();
+    const { success } = await new Deno.Command("where", {
+      args: ["wt.exe"],
+      stdout: "null",
+      stderr: "null",
+    }).output();
 
-  if (success) {
-    const psCommand = `Start-Process -FilePath "wt.exe" -ArgumentList @('${
-      exePath.replace(/'/g, "''")
-    }') -Verb RunAs`;
-    new Deno.Command("powershell.exe", {
-      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", psCommand],
-    }).spawn();
-    Deno.exit(0);
+    if (success) {
+      const psCommand = `Start-Process -FilePath "wt.exe" -ArgumentList @('${
+        exePath.replace(/'/g, "''")
+      }') -Verb RunAs`;
+      const result = await new Deno.Command("powershell.exe", {
+        args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", psCommand],
+      }).output();
+      return result.success;
+    }
+
+    const result = await new Deno.Command("powershell", {
+      args: [
+        "-NoProfile",
+        "-Command",
+        `Start-Process -FilePath ${escapedExePath} -Verb RunAs`,
+      ],
+    }).output();
+    
+    return result.success;
+  } catch (error) {
+    console.error("Ошибка при перезапуске с правами администратора:", error);
+    return false;
   }
-
-  new Deno.Command("powershell", {
-    args: [
-      "-NoProfile",
-      "-Command",
-      `Start-Process -FilePath ${escapedExePath} -Verb RunAs`,
-    ],
-  }).spawn();
-
-  Deno.exit(0);
 }
 
 const executeCommand = async (
@@ -688,20 +694,42 @@ const main = async () => {
   
   await loadUserConfig();
   
-  if (!await checkAdminRights() || await getProcessParentName() === 'unknown') {
-    console.log("Запуск без прав администратора, перезапускаю...");
-    
-    const currentCount = userConfig?.restartCount || 0;
-    if (currentCount >= 3) {
-      console.error("Превышено допустимое количество перезапусков (3).");
-      console.error("Пожалуйста, запустите программу вручную от имени администратора.");
-      await new Promise(resolve => setTimeout(resolve, 5000));
+  const restart = async () => {
+    try {
+      const currentCount = userConfig?.restartCount || 0;
+      if (currentCount >= 3) {
+        console.error("Превышено допустимое количество перезапусков (3).");
+        console.error("Пожалуйста, запустите программу вручную от имени администратора.");
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        Deno.exit(1);
+      }
+      
+      const writeSuccess = await writeToUserConfig("restartCount", currentCount + 1);
+      if (!writeSuccess) {
+        throw new Error("Failed to update restart count");
+      }
+
+      const restartSuccess = await restartAsAdmin();
+      if (!restartSuccess) {
+        throw new Error("Failed to restart as admin");
+      }
+
+      Deno.exit(0);
+    } catch (error) {
+      console.error("Ошибка при перезапуске:", error);
+      await writeToUserConfig("restartCount", 0);
       Deno.exit(1);
     }
-    
-    await writeToUserConfig("restartCount", currentCount + 1);
-    await restartAsAdmin();
-    Deno.exit(0);
+  }
+
+  if(await getProcessParentName() === 'unknown') {
+    console.error("Запуск из неизвестного процесса, перезапуск...");
+    await restart();
+  }
+
+  if (!await checkAdminRights()) {
+    console.log("Запуск без прав администратора, перезапускаю...");
+    await restart();
   }
   
   await writeToUserConfig("restartCount", 0);
