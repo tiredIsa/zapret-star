@@ -66,6 +66,7 @@ export async function waitUserInput() {
   console.log("\nНажмите любую клавишу, чтобы продолжить...");
   const buffer = new Uint8Array(1);
   await Deno.stdin.read(buffer);
+  return String.fromCharCode(buffer[0]);
 }
 
 export async function promptMenu(

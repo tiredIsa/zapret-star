@@ -1,7 +1,7 @@
 [Setup]
 AppId=zapret-star
 AppName=zapret-star
-AppVersion=0.4
+AppVersion=0.4.1
 DefaultDirName={commonpf}\zapret-star
 DefaultGroupName=Zapret-Star
 OutputBaseFilename=Zapret-star-Installer
@@ -20,7 +20,8 @@ ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; \
 Check: NeedsAddPath('{app}')
 
 [Run]
-Filename: "{app}\zapret-star"; Description: "Запустить Zapret-Star"; Flags: nowait postinstall runasoriginaluser
+Filename: "{app}\zapret-star.exe"; Description: "Запустить Zapret-Star после установки"; WorkingDir: "{app}"; Flags: nowait shellexec postinstall
+
 
 [Code]
 function NeedsAddPath(Param: string): boolean;
