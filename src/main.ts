@@ -912,7 +912,7 @@ const main = async () => {
       },
     );
 
- //   clear();
+   clear();
     await handlers[action as Action]();
 
     if (action !== "exit") {

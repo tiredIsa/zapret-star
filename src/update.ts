@@ -30,7 +30,6 @@ export async function checkForUpdates(): Promise<boolean> {
       return false;
     }
   } catch (error) {
-    // If it's a rate limit error (403) or any other error, just continue without update check
     console.log("Не удалось проверить обновления. Продолжаем работу...");
     return false;
   }
@@ -113,12 +112,10 @@ export async function downloadInstaller(): Promise<string> {
   return tmpPath;
 }
 
-const _installerPathTemp = "E:\\Nextcloud\\Files\\Code\\Other\\zapret-deno\\Output\\Zapret-star-Installer.exe"
-
 export async function runInstaller(installerPath: string) {
   console.log("\nУстановщик скачан. Сейчас программа закроется для обновления. Пожалуйста, следуйте инструкциям установщика.\n");
 
-  const process = new Deno.Command(_installerPathTemp, {
+  const process = new Deno.Command(installerPath, {
     stdout: "inherit",
     stderr: "inherit",
   }).spawn();
