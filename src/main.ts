@@ -202,15 +202,6 @@ async function restartAsAdmin(): Promise<void> {
   Deno.exit(0);
 }
 
-async function ensureAdminOrRelaunch(): Promise<void> {
-  if (Deno.build.os !== "windows") return;
-
-  const isAdmin = await checkAdminRights();
-  if (isAdmin) return;
-
-  await restartAsAdmin();
-}
-
 const executeCommand = async (
   command: string,
   args: string[] = [],
@@ -697,8 +688,7 @@ const main = async () => {
   
   await loadUserConfig();
   
-  const isAdmin = await checkAdminRights();
-  if (!isAdmin) {
+  if (!await checkAdminRights() || await getProcessParentName() === 'unknown') {
     console.log("Запуск без прав администратора, перезапускаю...");
     
     const currentCount = userConfig?.restartCount || 0;
@@ -716,8 +706,6 @@ const main = async () => {
   
   await writeToUserConfig("restartCount", 0);
   
-  const parentName = await getProcessParentName();
-  console.log("Родительский процесс:", parentName);
 
   const hasUpdate = await checkForUpdates();
 
