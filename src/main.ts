@@ -692,48 +692,14 @@ const main = async () => {
     return false;
   }
   
-  await loadUserConfig();
-  
-  const restart = async () => {
-    try {
-      const currentCount = userConfig?.restartCount || 0;
-      if (currentCount >= 3) {
-        console.error("Превышено допустимое количество перезапусков (3).");
-        console.error("Пожалуйста, запустите программу вручную от имени администратора.");
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        Deno.exit(1);
-      }
-      
-      const writeSuccess = await writeToUserConfig("restartCount", currentCount + 1);
-      if (!writeSuccess) {
-        throw new Error("Failed to update restart count");
-      }
-
-      const restartSuccess = await restartAsAdmin();
-      if (!restartSuccess) {
-        throw new Error("Failed to restart as admin");
-      }
-
-      Deno.exit(0);
-    } catch (error) {
-      console.error("Ошибка при перезапуске:", error);
-      await writeToUserConfig("restartCount", 0);
-      Deno.exit(1);
-    }
-  }
-
-  if(await getProcessParentName() === 'unknown') {
-    console.error("Запуск из неизвестного процесса, перезапуск...");
-    await restart();
-  }
-
+  // TODO починить т.к сейчас это пиздец
+  // мб в темп файле если будет доступ без админ прав
   if (!await checkAdminRights()) {
     console.log("Запуск без прав администратора, перезапускаю...");
-    await restart();
+    await restartAsAdmin();
   }
-  
-  await writeToUserConfig("restartCount", 0);
-  
+    
+  await loadUserConfig();
 
   const hasUpdate = await checkForUpdates();
 
